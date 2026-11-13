@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Error Monitor</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* One-column on-call console: status bar, filters, summary strip, hourly pulse, issues ranked by count. */
+:root{
+  --bg:#F4F6F9; --surface:#FFFFFF; --line:#DCE1E9; --fg:#18202C; --muted:#5B6678;
+  --accent:#1F5FBF; --accent-soft:#E3ECFA;
+  --crit:#B8322A; --crit-soft:#FBE6E4; --warn:#94650F; --warn-soft:#FBF0DA;
+  --info:#5B4BB0; --info-soft:#ECE8FA; --ok:#2C7A4B; --ok-soft:#E1F2E8;
+  --f-display:"Archivo","Segoe UI",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#11151C; --surface:#181E27; --line:#2A3240; --fg:#E3E8F0; --muted:#97A2B4;
+  --accent:#7AA8F2; --accent-soft:#1F2C42;
+  --crit:#F0857B; --crit-soft:#3A1F1E; --warn:#E3B565; --warn-soft:#352A16;
+  --info:#B3A6F2; --info-soft:#262040; --ok:#73C795; --ok-soft:#17301F; color-scheme:dark;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 var(--f-body);}
+.wrap{max-width:1080px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-left,0px)) 64px;display:grid;gap:20px;}
+h1,h2{font-family:var(--f-display);margin:0;text-wrap:balance;}
+h1{font-size:1.75rem;font-weight:800;letter-spacing:-.01em;}
+h2{font-size:1rem;font-weight:600;}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;}
+.label{font:600 .72rem/1 var(--f-body);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);}
+.mono{font-family:var(--f-mono);font-size:.82rem;}
+.hint{color:var(--muted);font-size:.88rem;margin:0;}
+button,select,a.btn{font:600 .9rem var(--f-body);color:var(--fg);background:var(--surface);border:1px solid var(--line);
+  border-radius:6px;padding:8px 14px;cursor:pointer;text-decoration:none;display:inline-block;}
+button.primary,a.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface);}
+button:disabled{opacity:.6;cursor:progress;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+.status{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:.9rem;color:var(--muted);}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;}
+.dot.off{background:var(--crit);}
+.banner{border-radius:6px;padding:10px 14px;font-size:.92rem;background:var(--accent-soft);}
+.banner.err{background:var(--crit-soft);}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;gap:12px;align-content:start;}
+
+.filters{display:flex;flex-wrap:wrap;gap:12px;}
+.filters label{display:grid;gap:6px;}
+
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;}
+@media (max-width:720px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:6px;}
+.tile .num{font:800 2rem/1 var(--f-display);font-variant-numeric:tabular-nums;}
+.tile .sub{color:var(--muted);font-size:.85rem;}
+.tile.alert .num{color:var(--crit);}
+
+.charts{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:12px;}
+@media (max-width:720px){.charts{grid-template-columns:minmax(0,1fr);}}
+.hours{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;}
+.yaxis{display:flex;flex-direction:column;justify-content:space-between;height:120px;font:.7rem var(--f-mono);color:var(--muted);text-align:right;}
+.bars{height:120px;display:grid;grid-template-columns:repeat(24,1fr);gap:2px;align-items:end;
+  border-bottom:1px solid var(--line);background:linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 50%;}
+.bar{background:var(--accent);border-radius:2px 2px 0 0;}
+.bar.peak{background:var(--crit);}
+.xaxis{grid-column:2;display:grid;grid-template-columns:repeat(4,1fr);font:.7rem var(--f-mono);color:var(--muted);}
+.groups{display:grid;gap:8px;}
+.grp .head{display:flex;justify-content:space-between;gap:8px;font-size:.88rem;}
+.grp .head span:first-child{min-width:0;overflow-wrap:anywhere;}
+.track{height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-top:4px;}
+.track i{display:block;height:100%;background:var(--accent);}
+
+.issues{display:grid;gap:10px;}
+.issue{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--c,var(--muted));border-radius:8px;}
+.issue summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:start;padding:14px 16px;}
+.issue summary::-webkit-details-marker{display:none;}
+.count{font:800 1.5rem/1 var(--f-display);font-variant-numeric:tabular-nums;min-width:2.2ch;text-align:right;}
+.where{font:.78rem var(--f-mono);color:var(--muted);overflow-wrap:anywhere;}
+.msg{font-weight:600;overflow-wrap:anywhere;margin:2px 0 6px;}
+.meta{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:.85rem;color:var(--muted);}
+.chip{font:600 .72rem/1 var(--f-body);letter-spacing:.04em;text-transform:uppercase;padding:4px 8px;border-radius:999px;background:var(--cs,var(--bg));color:var(--c,var(--muted));}
+.chev{color:var(--muted);transition:transform .15s;}
+.issue[open] .chev{transform:rotate(90deg);}
+@media (prefers-reduced-motion:reduce){.chev{transition:none;}}
+.detail{border-top:1px solid var(--line);padding:14px 16px 16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;}
+@media (max-width:720px){.detail{grid-template-columns:minmax(0,1fr);}}
+.detail section{min-width:0;display:grid;gap:6px;align-content:start;}
+.detail p,.detail ol,.detail ul{margin:0;}
+.detail ol{padding-left:1.2em;display:grid;gap:4px;}
+ul.ids{list-style:none;padding:0;max-height:140px;overflow:auto;overflow-wrap:anywhere;}
+pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;}
+.full{grid-column:1/-1;}
+.claude{background:var(--accent-soft);border-radius:6px;padding:12px 14px;display:grid;gap:8px;}
+.claude pre.code{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:8px;overflow-x:auto;white-space:pre;}
+.claude code{font-family:var(--f-mono);font-size:.85em;}
+.cat-code{--c:var(--crit);--cs:var(--crit-soft);}
+.cat-dep{--c:var(--warn);--cs:var(--warn-soft);}
+.cat-input,.cat-auth{--c:var(--info);--cs:var(--info-soft);}
+.cat-unknown{--c:var(--muted);--cs:var(--bg);}
+.teams summary{cursor:pointer;display:flex;justify-content:space-between;gap:12px;align-items:center;}
+.trow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr) minmax(0,2fr) auto;gap:8px;align-items:center;}
+@media (max-width:720px){.trow{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}.trow.head{display:none;}}
+input{font:.9rem var(--f-body);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 10px;width:100%;min-width:0;}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.thread{display:grid;gap:8px;}
+.thread .reply{border-left:3px solid var(--line);padding-left:10px;display:grid;gap:4px;}
+.empty{text-align:center;color:var(--muted);padding:32px 16px;border:1px dashed var(--line);border-radius:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Error Monitor</h1>
+    <div class="status" id="status" role="status"></div>
+  </header>
+  <div id="banner" hidden></div>
+
+  <div class="filters">
+    <label><span class="label">Date</span><select id="fDate"></select></label>
+    <label><span class="label">Environment</span><select id="fEnv"></select></label>
+    <label><span class="label">Group</span><select id="fSpace"></select></label>
+    <label><span class="label">Module</span><select id="fMod"></select></label>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="charts">
+    <section class="panel">
+      <h2>Alerts per hour <span class="label">your local time</span></h2>
+      <div class="hours">
+        <div class="yaxis" id="yaxis"></div>
+        <div class="bars" id="bars" role="img"></div>
+        <div class="xaxis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>By group</h2>
+      <div class="groups" id="groups"></div>
+    </section>
+  </div>
+
+  <details class="panel teams" id="teamsPanel">
+    <summary><h2>Teams and owners</h2><span class="hint" id="teamsHint"></span></summary>
+    <p class="hint">The bot tags the owner of the first team whose keywords appear in the alert (module, error type, title or message). Top row wins. With no match the team is named for you, like "EHR issue" or "Setting issue".</p>
+    <p class="banner" id="teamsWarn" hidden></p>
+    <div class="trow head label"><span>Team</span><span>Owner names</span><span>Owner Google emails, same order</span><span>Keywords, comma separated</span><span></span></div>
+    <div id="teamRows" style="display:grid;gap:8px"></div>
+    <div class="row"><button type="button" id="addTeam">Add team</button><button type="button" class="primary" id="saveTeams">Save</button><span class="hint" id="teamsMsg" role="status"></span></div>
+  </details>
+
+  <h2>Issues, most frequent first</h2>
+  <div class="issues" id="issues"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const hhmm = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const todayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const fmtDay = (k) => k === 'unknown' ? 'Unknown date' : new Date(k + 'T00:00').toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+const CAT = { code: 'Code bug', dep: 'Dependency', input: 'Bad input', auth: 'Auth', unknown: 'Unknown' };
+
+let status = {}, data = null, firstLoad = true;
+const open = new Set(); // issue keys the viewer expanded, kept across refreshes
+
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+  return json;
+}
+
+// Tiny Markdown: code blocks, inline code, bold, line breaks. Input is escaped first.
+function md(text) {
+  return esc(text)
+    .replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => `<pre class="code">${c}</pre>`)
+    .split(/(<pre class="code">[\s\S]*?<\/pre>)/)
+    .map((part) => part.startsWith('<pre') ? part : part
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/\n/g, '<br>'))
+    .join('');
+}
+
+function renderStatus() {
+  const s = status;
+  const parts = [];
+  if (s.connected) parts.push(`<span><span class="dot"></span>Reading ${plural(s.spaces.length, 'group')}</span>`);
+  else parts.push(`<span><span class="dot off"></span>Google not connected</span>`, `<a class="btn primary" href="/auth/google">Connect Google</a>`);
+  if (s.lastSync) parts.push(`<span>Last sync ${hhmm(s.lastSync)}</span>`);
+  parts.push(s.bot.spaces.length ? `<span><span class="dot${s.bot.error ? ' off' : ''}"></span>Bot posts in ${esc(s.bot.spaces.join(', '))}</span>` : '<span>Bot off</span>');
+  if (s.connected) parts.push(`<button id="syncBtn" type="button" ${s.syncing ? 'disabled' : ''}>${s.syncing ? 'Syncing…' : 'Sync now'}</button>`);
+  $('#status').innerHTML = parts.join('');
+  $('#syncBtn')?.addEventListener('click', syncNow);
+
+  const problems = s.spaces.filter((g) => g.error).map((g) => `${esc(g.name)}: ${esc(g.error)}`);
+  if (!s.spaces.length) problems.push('No groups configured. Add the group IDs to SPACES in .env and restart.');
+  if (s.bot.error) problems.push(`Bot: ${esc(s.bot.error)}`);
+  const miss = s.bot.missing || [];
+  $('#teamsWarn').hidden = !miss.length;
+  $('#teamsWarn').innerHTML = miss.map((m) => `<b>${esc(m.name)}</b> (${esc(m.team)}) is not in <b>${esc(m.group)}</b>, so the bot can only write their name there, without a real tag.`).join('<br>');
+  if (miss.length) problems.push(`${plural(miss.length, 'owner')} can't be tagged in a group they aren't in. See Teams and owners.`);
+  $('#banner').hidden = !problems.length;
+  $('#banner').className = 'banner err';
+  $('#banner').innerHTML = problems.join('<br>');
+}
+
+function setOptions(sel, items) {
+  const prev = sel.value;
+  sel.innerHTML = items.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+  if (items.some(([v]) => v === prev)) sel.value = prev;
+}
+
+async function load() {
+  const q = new URLSearchParams({ date: $('#fDate').value || 'all', env: $('#fEnv').value || 'all',
+    space: $('#fSpace').value || 'all', module: $('#fMod').value || 'all', tz: new Date().getTimezoneOffset() });
+  if (firstLoad) q.set('date', 'all');
+  data = await api('/api/summary?' + q);
+  const o = data.options, today = todayKey();
+  setOptions($('#fDate'), [...o.dates.map((d) => [d, (d === today ? 'Today, ' : '') + fmtDay(d)]), ['all', 'All dates']]);
+  setOptions($('#fEnv'), [['all', 'All'], ...o.envs.map((e) => [e, e[0].toUpperCase() + e.slice(1)])]);
+  setOptions($('#fSpace'), [['all', 'All groups'], ...o.spaces.map((g) => [g.id, g.name])]);
+  setOptions($('#fMod'), [['all', 'All modules'], ...o.modules.map((m) => [m, m])]);
+  if (firstLoad && o.dates.length) {
+    firstLoad = false;
+    $('#fDate').value = o.dates.includes(today) ? today : o.dates[0];
+    if (o.envs.includes('live')) $('#fEnv').value = 'live';
+    return load();
+  }
+  firstLoad = false;
+  render();
+}
+
+function render() {
+  const d = data, codeIssues = d.issues.filter((i) => i.cat === 'code');
+  const codeAlerts = codeIssues.reduce((n, i) => n + i.count, 0);
+  const day = $('#fDate').value;
+  $('#tiles').innerHTML = [
+    ['Alerts', d.total, day === 'all' ? 'all dates kept' : fmtDay(day), ''],
+    ['Unique issues', d.issues.length, d.issues[0] ? `top one is ${Math.round(d.issues[0].count / d.total * 100)}% of alerts` : 'nothing to group', ''],
+    ['Clients affected', d.clients, 'distinct location or org IDs', ''],
+    ['Code bugs to fix', codeIssues.length, `${plural(codeAlerts, 'alert')} caused by our code`, codeIssues.length ? 'alert' : ''],
+  ].map(([l, n, s, c]) => `<div class="tile ${c}"><span class="label">${l}</span><span class="num">${n}</span><span class="sub">${esc(s)}</span></div>`).join('');
+
+  const max = Math.max(1, ...d.hours);
+  $('#yaxis').innerHTML = `<span>${max}</span><span>${max % 2 ? '' : max / 2}</span><span>0</span>`;
+  $('#bars').innerHTML = d.hours.map((n, h) => `<div class="bar${n === max && n > 0 ? ' peak' : ''}" style="height:${n / max * 100}%" title="${String(h).padStart(2, '0')}:00 · ${plural(n, 'alert')}"></div>`).join('');
+  const peak = d.hours.indexOf(max);
+  $('#bars').setAttribute('aria-label', d.total ? `Busiest hour ${String(peak).padStart(2, '0')}:00 with ${plural(max, 'alert')}` : 'No alerts');
+
+  const gmax = d.byGroup[0]?.[1] || 1;
+  $('#groups').innerHTML = d.byGroup.length
+    ? d.byGroup.map(([g, n]) => `<div class="grp"><div class="head"><span>${esc(g)}</span><span class="mono">${n}</span></div><div class="track"><i style="width:${n / gmax * 100}%"></i></div></div>`).join('')
+    : '<p class="hint">No alerts for this filter.</p>';
+
+  $('#issues').innerHTML = d.issues.length ? d.issues.map(issueHtml).join('')
+    : `<div class="empty">${status.connected ? 'No alerts match these filters. Try another date or environment.' : 'Connect Google to start reading your error groups.'}</div>`;
+  document.querySelectorAll('.issue').forEach((el) => el.addEventListener('toggle', () => el.open ? open.add(el.dataset.key) : open.delete(el.dataset.key)));
+  document.querySelectorAll('[data-solve]').forEach((b) => b.addEventListener('click', () => askClaude(b)));
+}
+
+function issueHtml(g) {
+  const payload = Object.entries(g.payload).map(([k, v]) => `${k}: ${v}`).join('\n');
+  const when = g.count > 1 ? `first ${hhmm(g.first)} · last ${hhmm(g.last)}` : `at ${hhmm(g.last)}`;
+  return `<details class="issue cat-${g.cat}" data-key="${esc(g.key)}" ${open.has(g.key) ? 'open' : ''}>
+    <summary>
+      <span class="count" aria-label="${plural(g.count, 'alert')}">${g.count}</span>
+      <div>
+        <div class="where">${esc(g.module)} · ${esc(g.title)}</div>
+        <div class="msg">${esc(g.actual || 'No error message')}</div>
+        <div class="meta"><span class="chip">${CAT[g.cat]}</span><span>${esc(g.label)}</span>
+          <span>${esc(g.owner.team)}${g.owner.person ? ' · ' + esc(g.owner.person) : ''}</span>
+          <span>${plural(g.clients.length, 'client')}</span><span>${when}</span><span>${esc(g.envs.join(', '))}</span>
+          ${g.solution ? '<span>Claude fix ready</span>' : ''}</div>
+      </div>
+      <span class="chev" aria-hidden="true">›</span>
+    </summary>
+    <div class="detail">
+      <section><span class="label">Responsible team</span><p><b>${esc(g.owner.team)}</b>${g.owner.auto ? ' <span class="hint">(named automatically, add a team rule above to assign it)</span>' : ''}
+        ${g.owner.person ? `<br>Owner: ${esc(g.owner.person)}` : ''}</p></section>
+      ${botHtml(g)}
+      <section><span class="label">Why it happens</span><p>${esc(g.why)}</p></section>
+      <section><span class="label">How to fix</span><ol>${g.fix.map((f) => `<li>${esc(f)}</li>`).join('')}</ol></section>
+      <section><span class="label">Customer impact</span><p>${esc(g.impact || 'Not stated in the alert')}</p></section>
+      <section><span class="label">Where to look in code</span><p><span class="mono">${esc(g.title)}</span>${g.feature ? ` (${esc(g.feature)})` : ''}.
+        ${g.bundled ? 'The stack points to the compiled bundle, so search the repo for the function name instead of the line number.' : ''}</p></section>
+      ${payload ? `<section><span class="label">Example payload</span><pre class="mono">${esc(payload)}</pre></section>` : ''}
+      ${g.clients.length ? `<section><span class="label">Affected clients</span><ul class="ids mono">${g.clients.map(([c, n]) => `<li>${esc(c)} <span style="color:var(--muted)">×${n}</span></li>`).join('')}</ul></section>` : ''}
+      <section class="full"><span class="label">Claude</span>${claudeHtml(g)}</section>
+      <section class="full"><span class="label">Error IDs (latest ${g.ids.length})</span><ul class="ids mono">${g.ids.map((x) => `<li>${esc(x.id)} · ${esc(new Date(x.ts).toLocaleString())}</li>`).join('')}</ul></section>
+    </div>
+  </details>`;
+}
+
+const MODE = { fix: 'Fix prompt', reply: 'Team reply', ask: 'Answer' };
+function botHtml(g) {
+  if (!g.bot.length) return `<section><span class="label">Error Monitor bot</span><p class="hint">${status.bot.spaces.length ? 'Not posted for this issue yet.' : 'Bot is off.'}</p></section>`;
+  return `<section class="full"><span class="label">Error Monitor bot in the thread</span><div class="thread">${g.bot.map((p) => `
+    <div>Posted ${esc(new Date(p.at).toLocaleString())} · tagged ${esc(p.person || 'no one')} · ${esc(p.team)}</div>
+    ${p.replies.map((r) => `<div class="reply"><span class="hint">${esc(r.by || 'Someone')} asked “${esc(r.q)}” → ${MODE[r.mode]}</span><div>${md(r.text)}</div></div>`).join('')}`).join('')}
+  </div></section>`;
+}
+
+let teams = [];
+function teamRow(t = {}) {
+  const f = (k, ph, type = 'text') => `<input type="${type}" data-k="${k}" value="${esc(t[k])}" placeholder="${ph}" aria-label="${ph}">`;
+  return `<div class="trow">${f('team', 'e.g. Tx Plan')}${f('person', 'e.g. Ravi Patel, Asha Shah')}${f('email', 'ravi@adit.com, asha@adit.com')}${f('match', 'TREATMENT PLAN, EHR timeout')}
+    <button type="button" data-del aria-label="Remove team">Remove</button></div>`;
+}
+function renderTeams() {
+  $('#teamRows').innerHTML = teams.map(teamRow).join('') || '<p class="hint">No teams yet.</p>';
+  $('#teamsHint').textContent = plural(teams.length, 'team');
+}
+const readTeams = () => [...document.querySelectorAll('#teamRows .trow')]
+  .map((r) => Object.fromEntries([...r.querySelectorAll('input')].map((i) => [i.dataset.k, i.value])));
+$('#teamRows').addEventListener('click', (e) => { if (e.target.matches('[data-del]')) e.target.closest('.trow').remove(); });
+$('#addTeam').addEventListener('click', () => {
+  if (!document.querySelector('#teamRows .trow')) $('#teamRows').innerHTML = '';
+  $('#teamRows').insertAdjacentHTML('beforeend', teamRow());
+  $('#teamRows .trow:last-child input').focus();
+});
+$('#saveTeams').addEventListener('click', async () => {
+  try {
+    teams = await api('/api/teams', { teams: readTeams() });
+    renderTeams();
+    $('#teamsMsg').textContent = 'Saved.';
+    await load();
+  } catch (e) { $('#teamsMsg').textContent = e.message; }
+});
+
+function claudeHtml(g) {
+  const btn = (label) => `<button type="button" class="primary" data-solve="${esc(g.key)}" ${status.claude ? '' : 'disabled'}>${label}</button>`;
+  if (!g.solution) return `<div class="row">${btn('Ask Claude for a fix')} <span class="hint">Reads the failing function in your repos. Takes up to a minute.</span></div>`;
+  const s = g.solution;
+  return `<div class="claude">${md(s.text)}
+    <p class="hint">${s.files.length ? 'Code read: ' + s.files.map(esc).join(', ') : 'No source found for this function.'} · ${esc(new Date(s.at).toLocaleString())}</p>
+    <div>${btn('Ask again')}</div></div>`;
+}
+
+async function askClaude(btn) {
+  const key = btn.dataset.solve;
+  const issue = data.issues.find((i) => i.key === key);
+  const force = Boolean(issue.solution); // "Ask again" re-runs instead of returning the cached answer
+  btn.disabled = true;
+  btn.textContent = 'Claude is reading the code…';
+  try {
+    issue.solution = await api('/api/solve', { key, force });
+    open.add(key);
+    render();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Try again';
+    btn.insertAdjacentHTML('afterend', ` <span class="hint" style="color:var(--crit)">${esc(e.message)}</span>`);
+  }
+}
+
+async function syncNow() {
+  status.syncing = true; renderStatus();
+  try { await api('/api/sync', {}); } catch (e) { alertBanner(e.message); }
+  await refresh();
+}
+
+function alertBanner(msg) { $('#banner').hidden = false; $('#banner').className = 'banner err'; $('#banner').textContent = msg; }
+
+async function refresh() {
+  try {
+    status = await api('/api/status');
+    renderStatus();
+    await load();
+  } catch (e) { alertBanner(e.message); }
+}
+
+['#fDate', '#fEnv', '#fSpace', '#fMod'].forEach((s) => $(s).addEventListener('change', () => load().catch((e) => alertBanner(e.message))));
+refresh();
+setInterval(refresh, 60_000);
+api('/api/teams').then((t) => { teams = t; renderTeams(); }).catch((e) => alertBanner(e.message));
+</script>
+</body>
+</html>

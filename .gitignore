@@ -1,0 +1,4 @@
+node_modules/
+.env
+# holds alerts and the Google refresh token
+data/

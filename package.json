@@ -1,0 +1,17 @@
+{
+  "name": "error-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reads the GChat error groups, groups and explains the errors, and asks Claude for fixes.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.18.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.5.0"
+  }
+}
